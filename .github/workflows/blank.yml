@@ -28,7 +28,7 @@ jobs:
               7z x -y -o"$(dirname "$z")" "$z" > /dev/null && rm "$z"
             done
           done
-          cargo_toml=$(find proj -maxdepth 3 -name Cargo.toml -path '*' | xargs grep -l '^\[workspace\]' | head -1)
+          cargo_toml=$(find proj -maxdepth 3 -name Cargo.toml | xargs grep -l '^\[workspace\]' | head -1)
           [ -n "$cargo_toml" ] || { echo "Cargo.toml do workspace nao encontrado"; exit 1; }
           src=$(dirname "$cargo_toml")
           for f in Cargo.toml Cargo.lock crates/horizon-client/Cargo.toml; do
@@ -61,7 +61,7 @@ jobs:
         working-directory: ${{ env.SRC }}
         run: |
           set +e
-          cargo build --release -p horizon-client --target x86_64-pc-windows-msvc > build.log 2>&1
+          cargo build --release --bins --target x86_64-pc-windows-msvc > build.log 2>&1
           code=$?
           set -e
           if [ "$code" -ne 0 ]; then
@@ -72,7 +72,8 @@ jobs:
             { echo "## Erro ao compilar o EXE"; echo '```'; cat erros.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             exit "$code"
           fi
-          echo "EXE compilado sem erros."
+          echo "Executaveis gerados:"
+          find target/x86_64-pc-windows-msvc/release -maxdepth 1 -name '*.exe'
       - name: Guardar o log completo (so se falhar)
         if: failure()
         uses: actions/upload-artifact@v4
@@ -80,14 +81,17 @@ jobs:
           name: Log-completo-exe
           path: ${{ env.SRC }}/build.log
           retention-days: 7
-      - name: Nomear o EXE
-        working-directory: ${{ env.SRC }}/target/x86_64-pc-windows-msvc/release
+      - name: Juntar os EXE
+        working-directory: ${{ env.SRC }}
         run: |
-          exe=$(ls *.exe | head -1)
-          cp "$exe" "Cat-Launcher-pc.exe"
+          mkdir -p saida
+          find target/x86_64-pc-windows-msvc/release -maxdepth 1 -name '*.exe' -exec cp {} saida/ \;
+          ls saida/*.exe > /dev/null 2>&1 || { echo "Nenhum .exe gerado: nenhum crate do projeto tem binario (main.rs / [[bin]])."; exit 1; }
+          ls -la saida
       - uses: actions/upload-artifact@v4
         with:
           name: Cat-Launcher-exe
-          path: ${{ env.SRC }}/target/x86_64-pc-windows-msvc/release/Cat-Launcher-pc.exe
+          path: ${{ env.SRC }}/saida/*.exe
           if-no-files-found: error
           retention-days: 30
+          
