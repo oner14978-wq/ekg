@@ -1,4 +1,4 @@
-name: build-launcher
+name: cat-launcher
 on:
   workflow_dispatch:
 permissions:
@@ -37,6 +37,14 @@ jobs:
           done
           echo "LAUNCHER=$dir" >> "$GITHUB_ENV"
           echo "Launcher em $dir"
+      - name: Remover a atualizacao do launcher
+        working-directory: ${{ env.LAUNCHER }}
+        run: |
+          f="src/main.rs"
+          grep -q 'fn update_launcher(&mut self, release: Release) {' "$f" || { echo "update_launcher nao encontrado em $f"; exit 1; }
+          sed -i 's|^\(    fn update_launcher(&mut self, release: Release) {\)$|\1\n        if true {\n            return;\n        }|' "$f"
+          grep -q 'if true {' "$f" || { echo "Nao consegui desativar a atualizacao"; exit 1; }
+          echo "Atualizacao do launcher desativada."
       - name: Instalar Rust
         run: |
           rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
@@ -69,8 +77,9 @@ jobs:
         working-directory: ${{ env.LAUNCHER }}
         run: |
           mkdir -p saida
-          find target/x86_64-pc-windows-msvc/release -maxdepth 1 -name '*.exe' -exec cp {} saida/ \;
-          ls saida/*.exe > /dev/null 2>&1 || { echo "Nenhum .exe gerado."; exit 1; }
+          exe=target/x86_64-pc-windows-msvc/release/horizon-launcher.exe
+          [ -f "$exe" ] || { echo "horizon-launcher.exe nao encontrado."; exit 1; }
+          cp "$exe" saida/Cat-Launcher.exe
           ls -la saida
       - uses: actions/upload-artifact@v4
         with:
