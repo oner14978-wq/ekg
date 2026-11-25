@@ -1,4 +1,4 @@
-name: build-exe
+name: build-launcher
 on:
   workflow_dispatch:
 permissions:
@@ -28,48 +28,32 @@ jobs:
               7z x -y -o"$(dirname "$z")" "$z" > /dev/null && rm "$z"
             done
           done
-          cargo_toml=$(find proj -maxdepth 3 -name Cargo.toml | xargs grep -l '^\[workspace\]' | head -1)
-          [ -n "$cargo_toml" ] || { echo "Cargo.toml do workspace nao encontrado"; exit 1; }
-          src=$(dirname "$cargo_toml")
-          for f in Cargo.toml Cargo.lock crates/horizon-client/Cargo.toml; do
-            test -f "$src/$f" || { echo "Arquivo faltando no projeto: $f"; exit 1; }
+          launcher_toml=$(find proj -maxdepth 3 -path '*/launcher/Cargo.toml' | head -1)
+          [ -n "$launcher_toml" ] || { echo "launcher/Cargo.toml nao encontrado: faltam partes do projeto?"; exit 1; }
+          dir=$(dirname "$launcher_toml")
+          root=$(dirname "$dir")
+          for f in launcher/Cargo.lock crates/horizon-core/Cargo.toml crates/horizon-prepare/Cargo.toml; do
+            test -f "$root/$f" || { echo "Arquivo faltando no projeto: $f"; exit 1; }
           done
-          echo "SRC=$src" >> "$GITHUB_ENV"
-          echo "Projeto completo em $src"
-      - name: Corrigir dependencia starling-account no horizon-client
-        working-directory: ${{ env.SRC }}
-        run: |
-          cli="crates/horizon-client/Cargo.toml"
-          if grep -Eq '^[[:space:]]*starling[-_]account[[:space:]]*(=|\.)' "$cli"; then
-            echo "Dependencia starling-account ja declarada."; exit 0
-          fi
-          acc=$(grep -rlE --include=Cargo.toml '^name[[:space:]]*=[[:space:]]*"starling[-_]account"' . | grep -v '/target/' | head -1 || true)
-          [ -n "$acc" ] || { echo "O crate starling-account NAO existe neste projeto."; exit 1; }
-          rel=$(realpath --relative-to="crates/horizon-client" "$(dirname "$acc")")
-          line="starling-account = { path = \"$rel\" }"
-          if grep -q '^\[dependencies\]' "$cli"; then
-            sed -i "0,/^\[dependencies\]/s||[dependencies]\n$line|" "$cli"
-          else
-            printf '\n[dependencies]\n%s\n' "$line" >> "$cli"
-          fi
-          echo "Adicionado em $cli: $line"
+          echo "LAUNCHER=$dir" >> "$GITHUB_ENV"
+          echo "Launcher em $dir"
       - name: Instalar Rust
         run: |
           rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
           rustup default stable
-      - name: Compilar o EXE
-        working-directory: ${{ env.SRC }}
+      - name: Compilar o launcher
+        working-directory: ${{ env.LAUNCHER }}
         run: |
           set +e
-          cargo build --release --bins --target x86_64-pc-windows-msvc > build.log 2>&1
+          cargo build --release --target x86_64-pc-windows-msvc > build.log 2>&1
           code=$?
           set -e
           if [ "$code" -ne 0 ]; then
             awk '/^error/{p=1} p{print} /^$/{p=0}' build.log | head -n 60 > erros.txt
             [ -s erros.txt ] || tail -n 25 build.log > erros.txt
-            echo "===== ERRO AO COMPILAR O EXE ====="
+            echo "===== ERRO AO COMPILAR O LAUNCHER ====="
             cat erros.txt
-            { echo "## Erro ao compilar o EXE"; echo '```'; cat erros.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            { echo "## Erro ao compilar o launcher"; echo '```'; cat erros.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
             exit "$code"
           fi
           echo "Executaveis gerados:"
@@ -78,20 +62,20 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Log-completo-exe
-          path: ${{ env.SRC }}/build.log
+          name: Log-completo-launcher
+          path: ${{ env.LAUNCHER }}/build.log
           retention-days: 7
-      - name: Juntar os EXE
-        working-directory: ${{ env.SRC }}
+      - name: Juntar o EXE
+        working-directory: ${{ env.LAUNCHER }}
         run: |
           mkdir -p saida
           find target/x86_64-pc-windows-msvc/release -maxdepth 1 -name '*.exe' -exec cp {} saida/ \;
-          ls saida/*.exe > /dev/null 2>&1 || { echo "Nenhum .exe gerado: nenhum crate do projeto tem binario (main.rs / [[bin]])."; exit 1; }
+          ls saida/*.exe > /dev/null 2>&1 || { echo "Nenhum .exe gerado."; exit 1; }
           ls -la saida
       - uses: actions/upload-artifact@v4
         with:
           name: Cat-Launcher-exe
-          path: ${{ env.SRC }}/saida/*.exe
+          path: ${{ env.LAUNCHER }}/saida/*.exe
           if-no-files-found: error
           retention-days: 30
           
